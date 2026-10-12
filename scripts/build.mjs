@@ -1,0 +1,12 @@
+import {cp,mkdir,rm,readFile,writeFile,readdir} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+const walk=async p=>{const all=[];for(const e of await readdir(p,{withFileTypes:true}))all.push(...(e.isDirectory()?await walk(p+'/'+e.name):[p+'/'+e.name]));return all.sort();};
+const hash=createHash('sha256');
+for(const file of await walk('src'))hash.update(file).update(await readFile(file));
+const version=hash.digest('hex').slice(0,12);
+await rm('dist',{recursive:true,force:true});
+await mkdir('dist',{recursive:true});
+await cp('src','dist',{recursive:true});
+const sw=await readFile('dist/sw.js','utf8');
+await writeFile('dist/sw.js',sw.replace("thegods-offline-v1",'thegods-offline-'+version));
+console.log('Built static offline game → dist; cache version '+version);

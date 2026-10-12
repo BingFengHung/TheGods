@@ -1,114 +1,88 @@
-# 04｜技術架構、資料與多人連線
+# 04｜單機架構、資料與存檔
 
-狀態：建議架構，待 M1／M3 以實測收斂。未安裝套件、未建立伺服器，也未宣稱任何效能結果。
+> 0.1 實作已開始：本文件保留前期規劃，完成情形及技術調整請以 [09 實作現況](09-implementation-status.md) 為準；不能將規劃表格視為已交付功能。
 
-## 1. 分工與選型
+更新：2026-10-12，v0.2。M1–M4 不開發／部署後端。Node.js 只可作本機建置工具，不代表需租用常駐伺服器。所有玩法與存檔可在玩家裝置運作。
 
-| 層 | 選擇 | 責任與理由 |
-| --- | --- | --- |
-| 遊戲客戶端 | TypeScript + Phaser | 地圖、角色分層、動畫、特效、鏡頭及輸入 |
-| DOM 介面 | Vue + CSS | 登入、背包、任務、設定、聊天與可觸控按鈕 |
-| 建置 | Vite + pnpm workspace | 圖集／資料分包、版本與共用模組 |
-| 回合核心 | 純 TypeScript | 可重播結算；不依賴畫面或瀏覽器 |
-| 房間服務 | Node.js + Colyseus | 地圖／組隊／戰鬥房間、權威狀態與斷線恢復 |
-| 持久化 | PostgreSQL | 帳號角色、物品、任務、交易與戰果 |
-| 靜態資產 | HTTPS 物件儲存 + CDN | 有雜湊版本的地圖、角色、音效 |
-| 本機資料 | IndexedDB + Cache Storage | 設定、離線練習存檔、可重新下載資產 |
+## 1. 選型與模組
 
-採用 Colyseus 的狀態同步能力見 [TECH-05](02-reference-and-reconstruction.md)。它不等於已完成資料庫、交易或防作弊；這些由本專案實作。Redis、跨區與多分片於負載有需要時再加入。
+| 層 | 技術／職責 |
+| --- | --- |
+| 遊戲畫面 | TypeScript + Phaser：角色、圖集、地圖、動畫、特效與輸入 |
+| 介面 | Vue + CSS：背包、任務、設定、存檔與觸控介面 |
+| 建置 | Vite：純靜態輸出與按需資產包；鎖定套件版本 |
+| 遊戲規則 | 純 TypeScript：回合、成長、任務、掉落；不依賴網路 |
+| 進度 | IndexedDB：版本化且具交易邊界的本機存檔 |
+| 資產 | Cache Storage：可重抓的圖集、音效、地圖及離線外殼 |
+| 備份 | 玩家可匯出／匯入的存檔檔案，無雲端服務要求 |
+| 發佈 | 免費 HTTPS 靜態託管；[候選比較](08-free-hosting-options.md) |
 
-套件具體版本於 M1 查核官方相容性與安全更新後鎖定 lockfile；不能用「最新」作為可重現的版本。此選型針對外部 GitHub 專案，前端與長連線遊戲伺服器分開部署；靜態網站託管本身不能承擔持久戰鬥房間。
+不安裝 Colyseus、PostgreSQL、登入 SDK 或即時雲端服務作為單機的必要依賴。只保留乾淨的函式和儲存邊界，避免為不存在的後端先建立繁複協定。
 
-## 2. 系統關係
+## 2. 資料流
 
 ```mermaid
 flowchart TD
-    Input["觸控與介面"] --> Client["Phaser 客戶端"]
-    Client --> Assets["CDN 與圖集"]
-    Client --> Local["離線練習與本機設定"]
-    Client <-->|"指令與狀態"| Server["權威房間伺服器"]
-    Server --> Core["回合與規則核心"]
-    Server --> DB["PostgreSQL"]
-    Core --> Events["戰鬥事件"]
-    Events --> Server
+    UI["觸控與介面"] --> Session["本機遊戲控制"]
+    Session --> Rules["回合與玩法規則"]
+    Rules --> Events["動作與結果事件"]
+    Events --> Render["Phaser 畫面"]
+    Events --> Save["IndexedDB 存檔"]
+    Save <--> Backup["匯出與匯入備份"]
+    Render --> Cache["已下載內容包"]
 ```
 
-Vue 管介面狀態，Phaser 管畫面與每幀資料，透過型別化事件介面溝通；不能每幀把角色全部資料寫入 Vue 反應式狀態。世界位置採邏輯座標，投影成螢幕座標；地圖層提供碰撞、尋路與足點深度排序。
+Vue 不接收每幀全部角色位置；畫面與介面用型別化事件溝通。世界座標與螢幕投影分開，地圖包含碰撞、尋路與足點深度排序。
 
-## 3. 建議目錄（尚未建立）
+## 3. 建議程式結構（尚未建立）
 
 | 路徑 | 責任 |
 | --- | --- |
-| apps/client | PWA 外殼、Vue 介面、Phaser scenes、音訊與資產載入 |
-| apps/server | 身分驗證、地圖／戰鬥／隊伍房間、資料庫服務 |
-| packages/battle-core | 回合、技能效果、狀態、勝負與重播 |
-| packages/protocol | 指令、事件、版本與資料驗證 |
-| packages/content | 地圖、NPC、技能、物品、任務與來源記錄 |
-| packages/avatar | 外觀描述、圖集契約、組合及遮擋資料 |
-| tools/asset-pipeline | 來源匯出、打包、檢查與預覽工具 |
-| tests | 核心、多人一致性、端到端及資產檢查 |
-| docs | 本次規劃、後續決策與驗收證據 |
+| apps/client | PWA、Vue 介面、Phaser 場景、音訊及輸入 |
+| packages/game-core | 回合、敵方 AI、狀態、任務、物品與獎勵 |
+| packages/content | 地圖、NPC、技能、物品及來源狀態 |
+| packages/avatar | 分層外觀、動畫、遮擋及圖集契約 |
+| packages/save | IndexedDB、格式版本、匯入匯出與遷移 |
+| tools/asset-pipeline | 資產產生、打包、完整性及預覽 |
+| tests | 玩法、存檔、離線與端到端測試 |
 
-美術來源檔與發佈圖集分開。大型二進位資產不用普通 Git 反覆提交；CI 讀取有版本的資產清單。
+只實作 LocalGameSession 和 LocalSaveRepository；未來必要時再加入遠端實作。不要預先建立 apps/server 或要求連線才能通過健康檢查。
 
-## 4. 回合協定
+## 4. 本機回合與獎勵
 
-```mermaid
-stateDiagram-v2
-    [*] --> Prepare
-    Prepare --> Collect: 載入完成
-    Collect --> Resolve: 全員提交或截止
-    Resolve --> Present: 生成事件
-    Present --> Collect: 下一回合
-    Present --> Finish: 勝負成立
-    Finish --> [*]
-```
+Prepare→Collect→Resolve→Present→下一回合／Finish。玩家與敵方 AI 都提交同一類型指令，遊戲核心驗證行動、目標、資源及狀態。固定初始狀態、亂數狀態與指令可產生一致結果。
 
-1. 伺服器建立 battleId、rulesVersion、contentVersion、roundId、deadline 與初始狀態。
-2. 客戶端提交 commandId、roundId、actorId、actionId、targetIds；不提交傷害、掉落或自己計算的餘額。
-3. 驗證操作者權限、存活、消耗、目標、行動次數與截止；重送相同 commandId 返回既有結果。
-4. 收齊指令或逾時後，依可配置規則排序；速度影響與同速規則需原作補證。測試版先用固定可重播規則，清楚標記。
-5. RNG seed 僅在伺服器結算與受控重播使用；不能在玩家提交前公開可預測未來結果的亂數資訊。
-6. 產生有 eventSeq 的攻擊、傷害、狀態及勝負事件；客戶端播放動畫，但不得修改結果。動畫 acknowledgement 只影響呈現等待，不能無限拖延回合。
-7. 逾時預設防禦為重製初始設計，可配置。截止以伺服器時間為準，不相信本機倒數。
-8. 結算使用唯一 battleResultId 的資料庫交易寫入獎勵與任務；重連或重送不能重領。
+每場戰鬥有 battleId，每回合有 roundId，每次結算有 resultId。保存回合前狀態、已接受指令、亂數狀態、結算結果及可恢復階段；遊戲邏輯不由動畫幀率決定。
 
-回合間換裝先由伺服器驗證；戰鬥中的允許時點與數值快照規則要核對原版。初版在戰鬥中拒絕換裝並顯示原因，不能偷偷改變已提交動作的屬性。
+角色、物品、任務與已領取 resultId 在同一 IndexedDB 交易提交，成功後才顯示獎勵已儲存。關閉後可重播動畫或直接呈現結算，但不能再領一次。交易失敗則顯示儲存失敗並保留可重試狀態，不假裝成功。
 
-## 5. 多人與恢復
+退背景、直向提示及系統中斷可暫停單機倒數；返回後恢復，不能因瀏覽器背景計時節流跳過整場戰鬥。戰鬥內換裝初版限制在安全邊界，避免已提交動作的屬性被中途更換。
 
-- 探索按區域訂閱同圖玩家，伺服器檢查移速與可達性。初期同區 50 人為測試目標，不是已測能力。
-- 戰鬥房間與公開地圖隔離，只有授權隊員可控制自己的單位；聊天訊息不混入戰鬥狀態。
-- 原型先設雙方各十個戰鬥實體、共二十個的效能場景；玩家、戰寵、神仙名額再依原作規則調整。
-- reconnect 帶短期 token 與 lastEventSeq；伺服器傳 snapshot + 後續事件，序號較舊的資料不得覆蓋新狀態。
-- 伺服器每回合提交狀態快照、截止時間、已接受指令及結算事件。程序重啟可還原；若無法恢復則中止該戰鬥，不發放部分或重複獎勵。
-- 重新登入的同帳號多裝置策略首版為單一遊玩 session；新 session 取代舊 session 並顯示原因。
-- App 退背景不等於全隊暫停。伺服器照常走回合；重回前景先同步，再開放操作。
-- 斷線重連失敗須能回到角色／重試畫面，保留 server-side 進度，不停在黑畫面。
+## 5. 存檔格式與生命週期
 
-## 6. 資料邊界
+存檔包含 saveId、schemaVersion、contentVersion、revision、savedAt、角色／隊伍、背包、裝備、任務、地圖位置、戰鬥快照及 claimedResultIds。外觀由已穿戴物品解析，不重複存放容易不一致的能力值。
 
-| 實體 | 重要欄位／約束 |
-| --- | --- |
-| Account／Session | accountId、驗證資訊、sessionVersion、expiry；不將帳密寫入 repo |
-| Character | ownerId、professionId、level、stats、mapId、position、revision |
-| ItemDefinition | templateId、version、requirements、stats、visualId、sourceStatus |
-| ItemInstance／Equipment | 唯一 instanceId、ownerId、quantity、slot、revision；同一件不可同時在兩個槽 |
-| Appearance | bodyId、hairId、slotVisualIds、mountId、formId、appearanceRevision |
-| Pet／Deity／Mount | 實例與定義分離，能力、技能與外觀來源可追蹤 |
-| QuestProgress | questId、stepId、revision、rewardClaimId；一次性領獎唯一 |
-| Battle／Command／Event | battleId、roundId、eventSeq、rulesVersion、冪等鍵 |
-| InventoryLedger／Trade | 來源、去向、金額／物品、transactionId、交易狀態 |
-| ContentReference | sourceUrl、targetVersion、confidence、reviewState |
+- 自動存檔：回合提交、戰果、任務交付、換裝、切圖等安全邊界；不等關閉頁面才存。
+- 原子性：同一 save 的相關物件在同一交易中提交；保留上一個已驗證版本供恢復。
+- 多分頁：每個存檔只允許一個可寫遊戲 session；以 IndexedDB 鎖／租約與 revision 條件更新防止舊分頁覆蓋，其他分頁提示已開啟。
+- 匯出：使用者隨時下載備份，包含格式版本與完整性校驗；校驗用於偵測損毀，並非防修改安全保證。
+- 匯入：限制檔案大小、解析 JSON 結構、檢查數值與內容 ID；不執行任何匯入程式碼。先匯入新存檔槽並顯示摘要，避免直接覆蓋原進度。
+- 遷移：先保留舊版快照，再逐版遷移及驗證，成功後切換。遇到較新未知版本，保留原檔並說明版本不支援。
+- 容量不足：先清理可重新下載資產；進度資料不自動刪除。提供匯出並提示修復方式。
+- 清除網站資料／換瀏覽器／換裝置會影響本機進度；需靠備份搬移，不能宣稱自動雲端同步。
 
-背包容量、貨幣、掉落、交易由伺服器和資料庫交易維護。交易採預留→雙方確認→原子轉移；取消／斷線釋放預留。原版經濟尚未校準時用測試服數據，不導入付費功能。
+本機單機允許玩家掌控自己的資料；不投入線上防作弊、加密存檔保密或權威伺服器工程。未來若做多人，不能將可修改的本機存檔直接信任為線上貨幣與裝備。
 
-登入首版採成熟身分驗證方案或經安全審核的帳密服務，M3 選定 provider 與部署環境後定案。HTTPS、WSS、短效 session、輸入結構驗證、頻率限制、聊天文字轉義與權限檢查列為上線必要工程，不把信任交給客戶端。
+## 6. 發佈與更新
 
-## 7. 發佈與營運
+建置包含 clientBuildId、saveSchemaVersion、contentVersion、assetManifestHash。使用 HTTPS 與預設免費子網域，無需購買網域或 VM。CI 只做前端 build、資料／資產檢查、核心及存檔測試。
 
-每次版本包含 clientBuildId、protocolVersion、rulesVersion、contentVersion、assetManifestHash。連線時核對相容區間；錯版返回可理解的更新訊息，不能靜默用舊公式結算新裝備。
+資產按內容包提供完整清單與雜湊，全部完成後才能標示可離線。戰鬥時只提示更新；在安全邊界成功存檔後才切換外殼。保留舊資產直到新包完整，避免新舊混用或缺圖。
 
-CI 依序驗證資料／資產完整性、核心測試、多人協定與 build。測試部署通過後才推正式版本；伺服器採停止新房間→既有房間收尾／保存→更新的流程。前端保留上一版資產，避免正在遊玩的客戶端下載到 404。
+## 7. 最後才評估的後端
 
-記錄錯誤、載入失敗、房間人數、回合結算時間、重連結果與慢查詢，不記錄密碼或 session token。資料庫定期備份並實際演練恢復；正式前定義 RPO／RTO。M3 起記錄每百名同時在線的伺服器與流量成本，未選服務商前不提供虛假的固定月費。
+M5 為可選研究，不在本次開發依賴內。啟動前先確認單機效果、實際需求、同時在線人數與零費用限制。可能只需要備份同步，也可能需要真正組隊，兩者成本與架構不同。
+
+雲端同步可評估 Supabase；多人房間可比較 Cloudflare Durable Objects 或 Node／Colyseus。這些都不是已定案選型，不能假設互相直接相容。只有選擇多人後，才實作帳號、權威回合、WSS、快照重連、交易冪等及伺服器持久化。
+
+未來線上角色採新建或經驗證的受限搬移策略，不能承諾無條件繼承單機經濟。單機仍獨立保留且可遊玩。
