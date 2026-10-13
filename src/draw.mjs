@@ -1,5 +1,8 @@
 import {ARMORS} from './core.mjs';
 const TAU=Math.PI*2;
+export const HERO_PROPORTIONS=Object.freeze({bodyWidth:1.08,bodyHeight:.82,headScale:1.10,exploreScale:.92,battleScale:1.30});
+export function heroDimensions(scale=1,mounted=false){return {width:84*scale,height:(132+(mounted?24:0))*scale};}
+export function enemyDimensions(id){return id==='warden'?{width:184,height:211}:id==='wolf'?{width:101,height:118}:{width:66,height:104};}
 let heroAtlas=null,creatureAtlas=null;
 export function setHeroAtlas(image){heroAtlas=image;}
 export function setCreatureAtlas(image){creatureAtlas=image;}
@@ -7,6 +10,43 @@ const CREATURES={dragon:{box:[0,0,575,500],clip:[[0,0],[575,0],[575,211],[550,22
 function creaturePart(c,key,x,y,w,h){const p=CREATURES[key];c.save();c.translate(x,y);c.scale(w/p.box[2],h/p.box[3]);if(p.clip){c.beginPath();p.clip.forEach(([px,py],i)=>i?c.lineTo(px,py):c.moveTo(px,py));c.closePath();c.clip();}c.drawImage(creatureAtlas,...p.box,0,0,p.box[2],p.box[3]);c.restore();}
 const PARTS={face:[46,19,259,287],back:[394,29,217,292],crown:[667,13,256,286],halo:[987,98,237,224],crimsonBody:[31,324,278,262],jadeBody:[365,327,240,269],ivoryBody:[645,327,284,262],boots:[993,378,228,186],crimsonSkirt:[35,608,271,271],jadeSkirt:[343,609,275,276],ivorySkirt:[652,611,281,267],hand:[1044,657,123,206],crimsonArm:[84,885,164,342],jadeArm:[416,895,140,328],ivoryArm:[728,892,133,335],sword:[1057,882,126,348]};
 function part(c,key,x,y,w,h){c.drawImage(heroAtlas,...PARTS[key],x,y,w,h);}
+// Sockets are inside each collar opening, not at the top of its image rectangle.
+const COLLARS={
+ crimson:{x:1.4,y:-92.2,lip:-90.2},
+ jade:{x:0.7,y:-91.0,lip:-88.3},
+ ivory:{x:1.9,y:-92.0,lip:-90.0},
+};
+function paintedHead(c,equip,armor,back){
+ const socket=COLLARS[armor],chin={x:socket.x+.5,y:socket.y+1};
+ const hx=HERO_PROPORTIONS.headScale/HERO_PROPORTIONS.bodyWidth,hy=HERO_PROPORTIONS.headScale/HERO_PROPORTIONS.bodyHeight;
+ // The front atlas jaw landmark is (180,254) within the face crop.
+ // Long hair below it is not a neck attachment point.
+ const head=back?{x:socket.x-17*hx,y:socket.y-38*hy,w:34*hx,h:44*hy}:
+  {x:chin.x-180/259*38*hx,y:chin.y-254/287*42*hy,w:38*hx,h:42*hy};
+ const headPart=back?'back':'face';
+ const ornament={x:head.x+(back?-1:3)*hx,y:head.y+5*hy,w:35*hx,h:29*hy};
+ // Ribbons pass behind the hair and face; only the circlet band is in front.
+ if(equip.head==='halo')part(c,'halo',ornament.x,ornament.y,ornament.w,ornament.h);
+ // Paint over the atlas's empty black collar cavity, then cover the neck base
+ // with the front collar lip. This prevents the torso from erasing the neck.
+ shape(c,[[chin.x-8,chin.y-8],[chin.x,chin.y-3],[socket.x+4,socket.y+5],[socket.x-5,socket.y+5]],
+  grad(c,socket.x-6,socket.y-5,socket.x+4,socket.y+3,['#95735f','#d6b494','#b18b71']),null);
+ part(c,headPart,head.x,head.y,head.w,head.h);
+ if(equip.hair==='ink'){
+  c.save();
+  if(!back){c.beginPath();[[0,0],[1,0],[1,.42],[.88,.45],[.72,.38],[.58,.43],[.56,.58],[.50,.73],[.60,.95],[.4,1],[0,1]].forEach(([px,py],i)=>i?c.lineTo(head.x+px*head.w,head.y+py*head.h):c.moveTo(head.x+px*head.w,head.y+py*head.h));c.closePath();c.clip();}
+  c.filter='brightness(0.40) saturate(0.5)';part(c,headPart,head.x,head.y,head.w,head.h);c.restore();
+ }
+ if(!back){
+  c.save();c.beginPath();c.rect(socket.x-11,socket.lip,22,12);c.clip();
+  part(c,armor+'Body',-27,-95,54,43);c.restore();
+ }
+ if(equip.head==='crown')part(c,'crown',head.x+(back?1:5)*hx,head.y-12*hy,34*hx,29*hy);
+ else{
+  c.save();c.beginPath();c.rect(ornament.x,ornament.y,ornament.w,10*hy);c.clip();
+  part(c,'halo',ornament.x,ornament.y,ornament.w,ornament.h);c.restore();
+ }
+}
 function paintedHero(c,x,y,o){
  const {equip={armor:'crimson',weapon:'sword',head:'crown',hair:'silver'},dir=3,t=0,action='idle',scale=1,mounted=false,portrait=false}=o;
  const back=[0,1,7].includes(dir),side=[2,6].includes(dir),mirror=[5,6,7].includes(dir)?-1:1;
@@ -17,27 +57,19 @@ function paintedHero(c,x,y,o){
  c.translate(action==='hit'?Math.sin(t*48)*3:0,-bob-(mounted?24:0));c.scale(mirror,1);
  if(action==='defeat'){c.rotate(-1.1);c.translate(-35,30);}
  const armor=['crimson','jade','ivory'].includes(equip.armor)?equip.armor:'crimson',width=side?.8:[0,4].includes(dir)?1.07:1;
- c.scale(width,1);
+ // Compact the body around the planted feet. Counter-scale the head around
+ // its jaw/socket above so its face keeps a uniform, undistorted scale.
+ c.scale(width*HERO_PROPORTIONS.bodyWidth,HERO_PROPORTIONS.bodyHeight);
  // Limbs and clothes have independent attachment points and motion.
  for(const leg of [-1,1]){c.save();c.beginPath();c.rect(leg===-1?-23:0,-36,23,43);c.clip();c.translate(0,mounted?-4:phase*leg*3);part(c,'boots',-19,-27,41,30);c.restore();}
  c.save();c.translate(0,-56);c.rotate(phase*.04);part(c,armor+'Skirt',-28,0,56,48);c.restore();
  const drawArm=k=>{c.save();c.translate(k*20,-88);c.rotate(k*phase*.18+(k===1?(attack?-.9+Math.sin(t*18)*.65:cast?-.95:brace?-.65:0):cast?.55:0));if(k===-1){c.scale(-1,1);c.globalAlpha=.85;}part(c,armor+'Arm',-9,-4,19,46);part(c,'hand',-3,35,10,16);if(k===1){c.save();c.translate(4,46);if(equip.weapon==='sword'){c.rotate(attack?.3:.4);part(c,'sword',-10,-67,25,85);}else drawWeapon(c,equip.weapon,0,0,cast?-.2:.32,1.15);c.restore();}c.restore();};
  drawArm(-1);
  // Rear-facing cloth hides the front belt; this is a rigged prototype, not a full direction atlas.
- ellipse(c,2,-95,5,9,back?'#b38b70':'#e3bd98');part(c,armor+'Body',-27,-95,54,43);
+ part(c,armor+'Body',-27,-95,54,43);
  if(back)part(c,armor+'Skirt',-19,-88,38,51);
  drawArm(1);
- // Place the chin at the collar anchor; hairstyle bounds must not determine neck position.
- const head=back?{x:-18,y:-132,w:34,h:44}:{x:-26,y:-132,w:38,h:42};
- const headPart=back?'back':'face';
- part(c,headPart,head.x,head.y,head.w,head.h);
- if(equip.hair==='ink'){
-  c.save();
-  if(!back){c.beginPath();[[0,0],[1,0],[1,.42],[.88,.45],[.72,.38],[.58,.43],[.56,.58],[.50,.73],[.60,.95],[.4,1],[0,1]].forEach(([px,py],i)=>i?c.lineTo(head.x+px*head.w,head.y+py*head.h):c.moveTo(head.x+px*head.w,head.y+py*head.h));c.closePath();c.clip();}
-  c.filter='brightness(0.40) saturate(0.5)';part(c,headPart,head.x,head.y,head.w,head.h);c.restore();
- }
- if(equip.head==='crown')part(c,'crown',back?-17:-21,-144,34,29);else part(c,'halo',back?-19:-23,-127,35,29);
-
+ paintedHead(c,equip,armor,back);
  c.restore();
 }
 function ellipse(c,x,y,rx,ry,fill,stroke){c.beginPath();c.ellipse(x,y,rx,ry,0,0,TAU);c.fillStyle=fill;c.fill();if(stroke){c.strokeStyle=stroke;c.stroke();}}
@@ -82,7 +114,7 @@ export function drawDragon(c,x,y,{t=0,walk=false,dir=3,scale=1}={}){if(creatureA
  shape(c,[[-7,-35],[-19,-75],[-47,-91],[-37,-43],[-25,-57],[-20,-23]],grad(c,-40,-90,-8,-28,['#743444','#e49e92','#b1424d']),'#693849',2);line(c,[[-12,-34],[-20,-72],[-45,-90]],'#efb3a5',2);
  shape(c,[[-16,-45],[13,-45],[21,-34],[11,-27],[-15,-30],[-24,-37]],'#634a38','#d9aa66',2);line(c,[[-16,-35],[-17,-9]],'#d8b278',3);c.restore();}
 export function drawFox(c,x,y,t=0,scale=1){if(creatureAtlas){c.save();c.translate(x,y);c.scale(scale,scale);shadow(c,0,1,26);creaturePart(c,'fox',-44,-67+Math.sin(t*3),88,69);c.restore();return;}c.save();c.translate(x,y);c.scale(scale,scale);shadow(c,0,1,18);const bob=Math.sin(t*3)*2;c.translate(0,bob);for(let i=0;i<3;i++){c.save();c.translate(-12,-12);c.rotate(-.65+i*.35+Math.sin(t*2+i)*.08);ellipse(c,-14,-11,20,8,grad(c,-25,-12,5,-12,['#b8ddd5','#f2ede3']),'#669398');c.restore();}ellipse(c,0,-14,15,15,'#dee6d9','#7daba5');ellipse(c,6,-29,14,13,'#f0ede1','#829da1');shape(c,[[-6,-34],[-8,-53],[6,-39]],'#e6e3d5','#91a7aa');shape(c,[[10,-38],[22,-52],[20,-27]],'#e6e3d5','#91a7aa');line(c,[[0,-31],[4,-32]],'#397982',2);line(c,[[12,-32],[16,-30]],'#397982',2);ellipse(c,9,-24,2,1.4,'#5c6466');ellipse(c,6,-36,2,3,'#69bfbb');c.restore();}
-export function drawEnemy(c,x,y,e,t,selected=false){if(creatureAtlas&&['wolf','warden'].includes(e.id)){c.save();c.translate(x,y);if(e.hp<=0){c.globalAlpha=.23;c.rotate(-.4);}const big=e.id==='warden';shadow(c,0,0,big?48:28);if(selected)ring(c,0,0,big?47:32,'#ffc779',t);c.scale(-1,1);creaturePart(c,e.id,big?-80:-49,(big?-179:-112)+Math.sin(t*2),big?160:101,big?183:118);c.restore();return;}c.save();c.translate(x,y);if(e.hp<=0){c.globalAlpha=.24;c.translate(0,12);c.rotate(-.5);}const p=Math.sin(t*2);shadow(c,0,0,e.id==='warden'?44:26);if(selected)ring(c,0,0,e.id==='warden'?47:32,'#ffc779',t);
+export function drawEnemy(c,x,y,e,t,selected=false){if(creatureAtlas&&['wolf','warden'].includes(e.id)){c.save();c.translate(x,y);if(e.hp<=0){c.globalAlpha=.23;c.rotate(-.4);}const big=e.id==='warden';if(big)c.scale(1.15,1.15);shadow(c,0,0,big?48:28);if(selected)ring(c,0,0,big?47:32,'#ffc779',t);c.scale(-1,1);creaturePart(c,e.id,big?-80:-49,(big?-179:-112)+Math.sin(t*2),big?160:101,big?183:118);c.restore();return;}c.save();c.translate(x,y);if(e.hp<=0){c.globalAlpha=.24;c.translate(0,12);c.rotate(-.5);}const p=Math.sin(t*2);shadow(c,0,0,e.id==='warden'?44:26);if(selected)ring(c,0,0,e.id==='warden'?47:32,'#ffc779',t);
  if(e.id==='wolf'){for(const k of [-1,1]){shape(c,[[k*12,-33],[k*18,-7],[k*24,1],[k*8,1],[k*6,-29]],'#313d58','#1c2a3b');}ellipse(c,0,-41+p,21,30,grad(c,-20,-65,21,-20,['#76828e','#43516c','#293747']),'#252f43');shape(c,[[-20,-57],[-37,-39],[-31,-20],[-25,-36],[-8,-44]],'#41445e','#253146');shape(c,[[18,-58],[37,-38],[30,-18],[24,-35],[7,-43]],'#51536d','#253146');shape(c,[[-22,-65],[-21,-98],[-6,-84],[7,-84],[20,-99],[23,-61],[7,-50],[-8,-52]],grad(c,-23,-90,23,-60,['#738599','#454769','#272d45']),'#253244');shape(c,[[-17,-67],[0,-73],[16,-67],[9,-51],[-6,-52]],'#829fa9','#2c3b4d');line(c,[[-15,-77],[-6,-76]],'#d6e66f',3);line(c,[[7,-76],[15,-78]],'#d6e66f',3);shape(c,[[-7,-57],[-5,-45],[-1,-57]],'#e9e0c0',null);shape(c,[[6,-57],[5,-46],[2,-57]],'#e9e0c0',null);
  }else if(e.id==='wisp'){
  c.translate(0,Math.sin(t*3)*3);

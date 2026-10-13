@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {heroDimensions,enemyDimensions,HERO_PROPORTIONS} from '../src/draw.mjs';
 import assert from 'node:assert/strict';
 import {visibleViewport,cameraFor,worldToScreen,screenToWorld,hitActor} from '../src/layout.mjs';
 
@@ -9,7 +10,8 @@ test('an embedded visible viewport bounds the stage, including its offset',()=>{
 });
 
 test('battle actors and their labels stay between the HUD and command row on short phones',()=>{
- const bounds=[{x:290,y:146},{x:628,y:580},{x:782,y:286},{x:908,y:493},{x:685,y:466}];
+ const hero=heroDimensions(HERO_PROPORTIONS.battleScale),boss=enemyDimensions('warden');
+ const bounds=[{x:475-boss.width/2,y:365-boss.height-24},{x:628,y:580},{x:842-hero.width/2,y:463-hero.height-22},{x:842+hero.width/2,y:493},{x:685,y:466}];
  for(const [width,height,left,right,bottom]of [[844,390,44,44,21],[932,430,59,59,21],[667,320,0,0,0],[728,300,0,0,0],[1194,557,0,0,21]]){
   const camera=cameraFor(width,height,true,{left,right,bottom});
   for(const point of bounds){
