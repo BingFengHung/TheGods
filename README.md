@@ -2,6 +2,8 @@
 
 手機橫向、單機優先的角色扮演 PWA。**目前是 0.1.3 第一章單機原型，不是完整內容或視覺驗收完成版。** 遊戲不需要帳號、遊戲伺服器、雲端資料庫或付費 API。
 
+> **最新視覺評估（2026-10-13）：0.1.3 的人物比例、肩臂與風格仍未通過使用者檢查。** 已重新規劃完整角色、骨架、換裝與手機呈現；見 [角色與畫面重建計畫](docs/11-visual-rebuild-plan.md)。本次規劃尚未替換遊戲畫面。
+
 ## 現在可以玩什麼
 
 - 青嵐鎮、雲隱山道：點地移動、NPC 對話、地圖切換、寶匣與補給。
@@ -61,6 +63,6 @@ python3 -m http.server 4173 --directory dist
 
 [實作現況與測試](docs/09-implementation-status.md) · [美術來源與生成規格](docs/10-art-assets.md)
 
-前期規劃仍保留：[產品範圍](docs/01-product-and-scope.md)、[參考拆解](docs/02-reference-and-reconstruction.md)、[角色規格](docs/03-character-and-equipment.md)、[架構](docs/04-architecture-and-data.md)、[PWA](docs/05-mobile-pwa.md)、[驗收](docs/06-roadmap-and-acceptance.md)、[工作清單](docs/07-work-backlog.md)、[靜態託管方案](docs/08-free-hosting-options.md)。規劃目標和已交付項目分別列示，以 09 文件為目前實作依據。
+前期規劃仍保留：[產品範圍](docs/01-product-and-scope.md)、[參考拆解](docs/02-reference-and-reconstruction.md)、[角色規格](docs/03-character-and-equipment.md)、[架構](docs/04-architecture-and-data.md)、[PWA](docs/05-mobile-pwa.md)、[驗收](docs/06-roadmap-and-acceptance.md)、[工作清單](docs/07-work-backlog.md)、[靜態託管方案](docs/08-free-hosting-options.md)。規劃目標和已交付項目分別列示，以 09 文件為目前實作依據；角色與美術的下一步以 [11 重建計畫](docs/11-visual-rebuild-plan.md) 為準。
 
 後端與多人功能未開發；先完成、調整及驗收單機體驗，再由使用者決定後續範圍。
