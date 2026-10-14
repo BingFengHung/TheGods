@@ -1,4 +1,4 @@
-const CACHE='thegods-offline-3d64ee7ebe23';
+const CACHE='thegods-offline-d3b46c64d70d';
 const FILES=['./','./index.html','./styles.css','./app.mjs','./core.mjs','./commands.mjs','./layout.mjs','./draw.mjs','./storage.mjs','./manifest.webmanifest','./assets/town.webp','./assets/field.webp','./assets/hero-parts.webp','./assets/creatures.webp','./assets/icon.svg','./assets/icon-192.png','./assets/icon-512.png'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(FILES)));});
 self.addEventListener('activate',event=>{event.waitUntil(Promise.all([caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('thegods-offline-')&&k!==CACHE).map(k=>caches.delete(k)))),self.clients.claim()]));});

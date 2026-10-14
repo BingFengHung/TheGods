@@ -46,11 +46,90 @@ function paintedHead(c,equip,armor,back){
  if(equip.head==='crown')part(c,'crown',crown.x,crown.y,crown.w,crown.h);
  else{c.save();c.beginPath();c.rect(ornament.x,ornament.y,ornament.w,7);c.clip();part(c,'halo',ornament.x,ornament.y,ornament.w,ornament.h);c.restore();}
 }
+// Joint lengths belong to the person, not the pixel dimensions of their gear.
+// Coordinates are in the unmirrored character frame, before breathing / riding.
+const LIMBS=Object.freeze({upperArm:17,forearm:16,grip:3.5,thigh:24,shin:23});
+const stepJoint=(p,length,angle)=>({x:p.x+Math.sin(angle)*length,y:p.y+Math.cos(angle)*length});
+function kneeBetween(hip,ankle){
+ const dx=ankle.x-hip.x,dy=ankle.y-hip.y,d=Math.hypot(dx,dy);
+ const along=(LIMBS.thigh**2-LIMBS.shin**2+d*d)/(2*d);
+ const bend=Math.sqrt(Math.max(0,LIMBS.thigh**2-along**2));
+ return {x:hip.x+dx*along/d+dy*bend/d,y:hip.y+dy*along/d-dx*bend/d};
+}
+export function heroPose({action='idle',t=0,mounted=false}={}){
+ const walking=action==='walk',phase=walking?Math.sin(t*10):0;
+ const bob=walking?Math.abs(phase)*2:Math.sin(t*2)*.6;
+ const arms=[-1,1].map(side=>{
+  const shoulder={x:side===1?19:-19,y:side===1?-85:-83};
+  let upper=side*.14+side*phase*.22,lower=-side*.12+side*phase*.14;
+  if(action==='attack'&&side===1){upper=.85+Math.sin(t*18)*.3;lower=1.35+Math.sin(t*18)*.45;}
+  if(action==='cast'){upper=side===1?.85:-.45;lower=side===1?1.65:-1.0;}
+  if(action==='defend'&&side===1){upper=.5;lower=2.4;}
+  const elbow=stepJoint(shoulder,LIMBS.upperArm,upper),wrist=stepJoint(elbow,LIMBS.forearm,lower);
+  return {side,shoulder,elbow,wrist,grip:stepJoint(wrist,LIMBS.grip,lower)};
+ });
+ const legs=[-1,1].map(side=>{
+  const hip={x:side*7,y:-51};
+  // One foot supports the body while the other lifts. Boots remain whole.
+  const lift=walking?Math.max(0,phase*side)*6:0;
+  const ankle={x:side*9+phase*side*3+(mounted?side*4:0),y:-7.25+bob-lift-(side===1?2:0)-(mounted?8:0)};
+  return {side,hip,knee:kneeBetween(hip,ankle),ankle,lift};
+ });
+ return {arms,legs};
+}
+// Rotate and scale a source segment uniformly so both painted landmarks meet
+// its anatomical joints. The crop mask only removes unrelated atlas pieces.
+function attachedPart(c,key,sourceA,sourceB,a,b,clip,mirror=false){
+ const dx=sourceB[0]-sourceA[0],dy=sourceB[1]-sourceA[1];
+ const scale=Math.hypot(b.x-a.x,b.y-a.y)/Math.hypot(dx,dy),box=PARTS[key];
+ c.save();c.translate(a.x,a.y);c.rotate(Math.atan2(b.y-a.y,b.x-a.x)-Math.PI/2);c.scale(mirror?-scale:scale,scale);c.rotate(Math.PI/2-Math.atan2(dy,dx));c.translate(-sourceA[0],-sourceA[1]);
+ if(clip){c.beginPath();clip.forEach(([x,y],i)=>i?c.lineTo(x,y):c.moveTo(x,y));c.closePath();c.clip();}
+ part(c,key,0,0,box[2],box[3]);c.restore();
+}
+const FOREARMS={
+ crimson:{elbow:[44,178],wrist:[96,318],top:162},
+ jade:{elbow:[45,140],wrist:[100,251],top:112},
+ ivory:{elbow:[50,171],wrist:[102,318],top:157},
+};
+function sleeve(c,a,armor){
+ const colors=armor==='jade'?['#234d56','#50868a']:armor==='ivory'?['#273342','#59677a']:['#40262c','#754249'];
+ line(c,[[a.shoulder.x,a.shoulder.y],[a.elbow.x,a.elbow.y]],grad(c,a.shoulder.x-4,0,a.shoulder.x+4,0,colors),8);
+ ellipse(c,a.elbow.x,a.elbow.y,4,4,colors[0]);
+}
+function forearm(c,a,armor){
+ const p=FOREARMS[armor],box=PARTS[armor+'Arm'];
+ attachedPart(c,armor+'Arm',p.elbow,p.wrist,a.elbow,a.wrist,[[0,p.top],[box[2],p.top],[box[2],box[3]],[0,box[3]]],a.side===-1);
+}
+function glove(c,a){
+ attachedPart(c,'hand',[60,119],[67,165],a.wrist,a.grip,[[0,103],[123,103],[123,206],[0,206]],a.side===-1);
+}
+function heldWeapon(c,type,grip,action,t){
+ if(type==='none')return;
+ const angle=action==='attack'?.9+Math.sin(t*18)*.6:action==='cast'?.35:action==='defend'?.12:.27;
+ c.save();c.translate(grip.x,grip.y);c.rotate(angle);
+ if(type==='sword'){
+  // The middle of the handle, rather than the image edge, belongs in the palm.
+  const k=65/348;part(c,'sword',-47*k,-278*k,126*k,348*k);
+ }else if(creatureAtlas&&['glaive','staff'].includes(type)){
+  const p=CREATURES[type],anchor=type==='staff'?[86,360]:[52,360],k=112/p.box[3];
+  creaturePart(c,type,-anchor[0]*k,-anchor[1]*k,p.box[2]*k,p.box[3]*k);
+ }else drawWeapon(c,type,0,0,0,.9);
+ c.restore();
+}
+function paintedLeg(c,leg){
+ line(c,[[leg.hip.x,leg.hip.y],[leg.knee.x,leg.knee.y],[leg.ankle.x,leg.ankle.y]],'#26313c',9);
+ // Use the complete foreground boot twice. The old centre split cut through
+ // the instep and toe of a paired-boots image and made two different feet.
+ const bootMask=[[0,0],[72,0],[76,54],[74,102],[90,130],[124,141],[146,157],[143,186],[0,186]];
+ c.save();c.translate(leg.ankle.x,leg.ankle.y);c.scale(.145,.145);c.translate(-44,-136);
+ c.beginPath();bootMask.forEach(([x,y],i)=>i?c.lineTo(x,y):c.moveTo(x,y));c.closePath();c.clip();
+ part(c,'boots',0,0,228,186);c.restore();
+}
 function paintedHero(c,x,y,o){
  const {equip={armor:'crimson',weapon:'sword',head:'crown',hair:'silver'},dir=3,t=0,action='idle',scale=1,mounted=false,portrait=false}=o;
  const back=[0,1,7].includes(dir),mirror=[5,6,7].includes(dir)?-1:1;
  const walk=action==='walk',phase=walk?Math.sin(t*10):Math.sin(t*2)*.06,bob=walk?Math.abs(phase)*2:Math.sin(t*2)*.6;
- const attack=action==='attack',cast=action==='cast',brace=action==='defend';
+ const pose=heroPose({action,t,mounted});
  c.save();c.translate(x,y);c.scale(scale,scale);if(!portrait)shadow(c,0,1,mounted?48:28);
  if(mounted)drawDragon(c,0,0,{t,walk,dir,scale:.86});
  c.translate(action==='hit'?Math.sin(t*48)*3:0,-bob-(mounted?24:0));c.scale(mirror,1);
@@ -58,41 +137,14 @@ function paintedHero(c,x,y,o){
  const armor=['crimson','jade','ivory'].includes(equip.armor)?equip.armor:'crimson';
  // Keep source aspect ratios for every direction. The legacy atlas still
  // only has front/back views; squeezing a front view is not a side view.
- // Limbs and clothes have independent attachment points and motion.
- for(const leg of [-1,1]){c.save();c.beginPath();c.rect(leg===-1?-23:0,-36,23,43);c.clip();c.translate(0,mounted?-4:phase*leg*3);part(c,'boots',-17,-26,34,34*186/228);c.restore();}
- c.save();c.translate(0,-56);c.rotate(phase*.04);part(c,armor+'Skirt',-24.5,0,49,49*PARTS[armor+'Skirt'][3]/PARTS[armor+'Skirt'][2]);c.restore();
- const drawArm=(k,upperOnly=false)=>{
-  c.save();c.translate(k*20,-84);
-  c.rotate(k*phase*.18+(k===1?(attack?-.9+Math.sin(t*18)*.65:cast?-.95:brace?-.65:0):cast?.55:0));
-  if(k===-1)c.scale(-1,1);
-  // The torso owns both shoulder plates. Only the sleeve below the upper
-  // shoulder is used here; a second pauldron must never cover the torso.
-  const arm=PARTS[armor+'Arm'],ak=17/arm[2],trim=armor==='jade'?90:115;
-  const sleeve=armor==='jade'?['#234d56','#50868a']:armor==='ivory'?['#273342','#59677a']:['#40262c','#754249'];
-  // Continuous undersleeve connects the shoulder socket to the trimmed arm
-  // even when raised. It stays beneath the torso's one visible pauldron.
-  if(k===-1||upperOnly){
-   c.beginPath();c.moveTo(-4,2);c.quadraticCurveTo(-4,-3,0,-3);c.quadraticCurveTo(4,-3,4,2);c.lineTo(5,trim*ak+8);c.lineTo(-5,trim*ak+8);c.closePath();c.fillStyle=grad(c,-5,0,5,0,sleeve);c.fill();
-  }
-  if(upperOnly){c.restore();return;}
-  c.drawImage(heroAtlas,arm[0],arm[1]+trim,arm[2],arm[3]-trim,-8,trim*ak,17,(arm[3]-trim)*ak);
-  const wristY=arm[3]*ak;
-  // Use the actual hand and a short cuff, not a second full forearm.
-  const hand=PARTS.hand,hk=8/hand[2],handTrim=78;
-  const handY=wristY-3;
-  c.drawImage(heroAtlas,hand[0],hand[1]+handTrim,hand[2],hand[3]-handTrim,-3,handY,8,(hand[3]-handTrim)*hk);
-  if(k===1){c.save();c.translate(2,handY+6);
-   if(equip.weapon==='sword'){c.rotate(attack?.3:.4);part(c,'sword',-8,-58,21,21*348/126);}
-   else drawWeapon(c,equip.weapon,0,0,cast?-.2:.32,1.05);
-   c.restore();
-  }
-  c.restore();
- };
- drawArm(-1);drawArm(1,true);
+ // Both legs have a hip, knee and ankle; feet are complete silhouettes.
+ for(const leg of [...pose.legs].reverse())paintedLeg(c,leg);
+ c.save();c.translate(0,-59);c.rotate(phase*.025);part(c,armor+'Skirt',-22,0,44,44*PARTS[armor+'Skirt'][3]/PARTS[armor+'Skirt'][2]);c.restore();
+ for(const arm of pose.arms)sleeve(c,arm,armor);
  // Rear-facing cloth hides the front belt; this is a rigged prototype, not a full direction atlas.
  const body=heroAttachment(armor).body;part(c,armor+'Body',body.x,body.y,body.w,body.h);
  if(back)part(c,armor+'Skirt',-19,-88,38,38*PARTS[armor+'Skirt'][3]/PARTS[armor+'Skirt'][2]);
- drawArm(1);
+ for(const arm of pose.arms){forearm(c,arm,armor);if(arm.side===1)heldWeapon(c,equip.weapon,arm.grip,action,t);glove(c,arm);}
  paintedHead(c,equip,armor,back);
  c.restore();
 }
