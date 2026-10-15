@@ -1,1 +1,1 @@
-{"name":"thegods-offline","version":"0.1.5","private":true,"type":"module","scripts":{"build":"node scripts/build.mjs","test":"node --test tests/*.test.mjs","check":"node scripts/check.mjs"}}
+{"name":"thegods-offline","version":"0.1.6","private":true,"type":"module","scripts":{"build":"node scripts/build.mjs","test":"node --test tests/*.test.mjs","check":"node scripts/check.mjs"}}

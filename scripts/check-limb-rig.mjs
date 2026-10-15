@@ -3,12 +3,13 @@
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
 import {resolve} from 'node:path';
-import {drawHero,setHeroAtlas,setCreatureAtlas,heroPose} from '../src/draw.mjs';
+import {drawHero,setHeroAtlas,setCreatureAtlas,setTrouserAtlas,heroPose} from '../src/draw.mjs';
 const modulePath=process.env.THEGODS_CANVAS_MODULE;
 if(!modulePath)throw Error('Set THEGODS_CANVAS_MODULE to a local @napi-rs/canvas/index.js path.');
 const {createCanvas,loadImage}=await import(pathToFileURL(resolve(modulePath)).href);
 setHeroAtlas(await loadImage(new URL('../src/assets/hero-parts.webp',import.meta.url).pathname));
 setCreatureAtlas(await loadImage(new URL('../src/assets/creatures.webp',import.meta.url).pathname));
+setTrouserAtlas(await loadImage(new URL('../src/assets/trousers.webp',import.meta.url).pathname));
 const canvas=createCanvas(600,700),c=canvas.getContext('2d'),scale=3;
 let cases=0;
 for(const armor of ['crimson','jade','ivory'])for(const weapon of ['sword','staff','glaive']){

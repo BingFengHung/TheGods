@@ -3,9 +3,10 @@ const TAU=Math.PI*2;
 export const HERO_PROPORTIONS=Object.freeze({bodyWidth:1,bodyHeight:1,headScale:1,exploreScale:.92,battleScale:1.30});
 export function heroDimensions(scale=1,mounted=false){return {width:84*scale,height:(144+(mounted?24:0))*scale};}
 export function enemyDimensions(id){return id==='warden'?{width:184,height:211}:id==='wolf'?{width:101,height:118}:{width:66,height:104};}
-let heroAtlas=null,creatureAtlas=null;
+let heroAtlas=null,creatureAtlas=null,trouserAtlas=null;
 export function setHeroAtlas(image){heroAtlas=image;}
 export function setCreatureAtlas(image){creatureAtlas=image;}
+export function setTrouserAtlas(image){trouserAtlas=image;}
 const CREATURES={dragon:{box:[0,0,575,500],clip:[[0,0],[575,0],[575,211],[550,222],[550,407],[575,418],[575,500],[0,500]]},warden:{box:[548,0,507,494],clip:[[78,0],[507,0],[507,494],[278,494],[278,454],[238,454],[230,479],[42,479],[42,400],[18,358],[0,343],[0,195],[53,195],[53,89]]},wolf:{box:[1054,0,482,510],clip:[[0,0],[482,0],[482,510],[302,510],[302,445],[208,445],[208,483],[0,483]]},fox:{box:[0,561,550,430]},glaive:{box:[713,457,181,556],clip:[[74,0],[110,0],[110,162],[181,201],[181,556],[0,556],[0,92]]},staff:{box:[1191,459,303,554],clip:[[70,0],[115,0],[163,75],[166,150],[303,291],[303,554],[0,554],[0,146],[42,75]]}};
 function creaturePart(c,key,x,y,w,h){const p=CREATURES[key];c.save();c.translate(x,y);c.scale(w/p.box[2],h/p.box[3]);if(p.clip){c.beginPath();p.clip.forEach(([px,py],i)=>i?c.lineTo(px,py):c.moveTo(px,py));c.closePath();c.clip();}c.drawImage(creatureAtlas,...p.box,0,0,p.box[2],p.box[3]);c.restore();}
 const PARTS={face:[46,19,259,287],back:[394,29,217,292],crown:[667,13,256,286],halo:[987,98,237,224],crimsonBody:[31,324,278,262],jadeBody:[365,327,240,269],ivoryBody:[645,327,284,262],boots:[993,378,228,186],crimsonSkirt:[35,608,271,271],jadeSkirt:[343,609,275,276],ivorySkirt:[652,611,281,267],hand:[1044,657,123,206],crimsonArm:[84,885,164,342],jadeArm:[416,895,140,328],ivoryArm:[728,892,133,335],sword:[1057,882,126,348]};
@@ -13,21 +14,21 @@ function part(c,key,x,y,w,h){c.drawImage(heroAtlas,...PARTS[key],x,y,w,h);}
 // Every piece keeps the atlas aspect ratio. Source landmarks, rather than
 // image rectangle centres, connect the neck to the opening of each garment.
 const GARMENTS={
- crimson:{collar:[146,39],lip:50},
- jade:{collar:[114,43],lip:62},
- ivory:{collar:[146,41],lip:53},
+ crimson:{collar:[146,39],lip:50,hem:227,width:54},
+ jade:{collar:[114,43],lip:62,hem:210,width:51},
+ ivory:{collar:[146,41],lip:53,hem:225,width:54},
 };
 export function heroAttachment(armor='crimson',back=false){
  const id=GARMENTS[armor]?armor:'crimson',source=PARTS[id+'Body'];
- const body={x:-27,y:-101,w:54,h:54*source[3]/source[2]};
- const k=body.w/source[2],g=GARMENTS[id];
+ const g=GARMENTS[id],body={x:-g.width/2,y:-97,w:g.width,h:g.width*source[3]/source[2]};
+ const k=body.w/source[2];
  const socket={x:body.x+g.collar[0]*k,y:body.y+g.collar[1]*k};
  const size=back?29:30,headPart=back?'back':'face',box=PARTS[headPart];
  const hs=size/box[2],anchor=back?[111,263]:[145,267];
  const head={x:socket.x-anchor[0]*hs,y:socket.y-anchor[1]*hs,w:size,h:box[3]*hs};
  const crown={x:head.x+(back?0:3),y:head.y-6,w:24,h:24*286/256};
  const ornament={x:head.x+(back?-1:1),y:head.y+5,w:28,h:28*224/237};
- return {body,socket,head,crown,ornament,lip:body.y+g.lip*k,headPart};
+ return {body,socket,head,crown,ornament,lip:body.y+g.lip*k,hem:body.y+g.hem*k,headPart};
 }
 function paintedHead(c,equip,armor,back){
  const {body,socket,head,crown,ornament,lip,headPart}=heroAttachment(armor,back);
@@ -60,7 +61,7 @@ export function heroPose({action='idle',t=0,mounted=false}={}){
  const walking=action==='walk',phase=walking?Math.sin(t*10):0;
  const bob=walking?Math.abs(phase)*2:Math.sin(t*2)*.6;
  const arms=[-1,1].map(side=>{
-  const shoulder={x:side===1?19:-19,y:side===1?-85:-83};
+  const shoulder={x:side===1?19:-19,y:side===1?-81:-79};
   let upper=side*.14+side*phase*.22,lower=-side*.12+side*phase*.14;
   if(action==='attack'&&side===1){upper=.85+Math.sin(t*18)*.3;lower=1.35+Math.sin(t*18)*.45;}
   if(action==='cast'){upper=side===1?.85:-.45;lower=side===1?1.65:-1.0;}
@@ -116,8 +117,40 @@ function heldWeapon(c,type,grip,action,t){
  }else drawWeapon(c,type,0,0,0,.9);
  c.restore();
 }
+// A fitted waist and two cloth legs replace the old long skirt / line legs.
+// Each complete trouser leg follows its ankle while its upper edge stays at
+// the crotch. One affine draw per leg avoids band seams and keeps the waist
+// joined. This is a 2D cloth warp, not a complete 3D skeleton.
+const TROUSERS={
+ crimson:{box:[0,90,512,780],waist:[275,25],split:284,cuffs:[718,689]},
+ jade:{box:[512,90,512,780],waist:[268,25],split:288,cuffs:[712,685]},
+ ivory:{box:[1024,90,512,780],waist:[276,25],split:284,cuffs:[722,692]},
+};
+function paintedTrousers(c,pose,armor){
+ if(!trouserAtlas){
+  const colors=armor==='jade'?['#b9c3b5','#ede4cb']:['#273342','#556078'];
+  shape(c,[[-14,-62],[13,-62],[17,-46],[6,-40],[-4,-40],[-17,-46]],grad(c,-14,0,14,0,colors),null);
+  for(const leg of pose.legs){
+   const h=leg.hip,a=leg.ankle;
+   shape(c,[[h.x-9,h.y-5],[h.x+8,h.y-5],[a.x+5,a.y-3],[a.x-5,a.y-3]],grad(c,h.x-8,0,h.x+8,0,colors),null);
+   line(c,[[h.x-4,h.y+8],[a.x-2,a.y-13]],colors[0],1);
+  }
+  return;
+ }
+ const p=TROUSERS[armor],k=.07,waistY=-62,left=-p.waist[0]*k,top=waistY-p.waist[1]*k;
+ // The top section stays under the jacket and joins both moving trouser legs.
+ const divideY=245;
+ c.drawImage(trouserAtlas,p.box[0],p.box[1],512,divideY,left,top,512*k,divideY*k);
+ const rest=heroPose().legs;
+ for(let i=1;i>=0;i--){
+  const leg=pose.legs[i],dx=leg.ankle.x-rest[i].ankle.x,dy=leg.ankle.y-rest[i].ankle.y;
+  const sx=i===0?0:p.split,sw=i===0?p.split:512-p.split;
+  const span=p.cuffs[i]-divideY;
+  c.save();c.translate(left,top+divideY*k);c.transform(k,0,dx/span,k+dy/span,0,0);
+  c.drawImage(trouserAtlas,p.box[0]+sx,p.box[1]+divideY,sw,780-divideY,sx,0,sw,780-divideY);c.restore();
+ }
+}
 function paintedLeg(c,leg){
- line(c,[[leg.hip.x,leg.hip.y],[leg.knee.x,leg.knee.y],[leg.ankle.x,leg.ankle.y]],'#26313c',9);
  // Use the complete foreground boot twice. The old centre split cut through
  // the instep and toe of a paired-boots image and made two different feet.
  const bootMask=[[0,0],[72,0],[76,54],[74,102],[90,130],[124,141],[146,157],[143,186],[0,186]];
@@ -138,12 +171,14 @@ function paintedHero(c,x,y,o){
  // Keep source aspect ratios for every direction. The legacy atlas still
  // only has front/back views; squeezing a front view is not a side view.
  // Both legs have a hip, knee and ankle; feet are complete silhouettes.
+ paintedTrousers(c,pose,armor);
  for(const leg of [...pose.legs].reverse())paintedLeg(c,leg);
- c.save();c.translate(0,-59);c.rotate(phase*.025);part(c,armor+'Skirt',-22,0,44,44*PARTS[armor+'Skirt'][3]/PARTS[armor+'Skirt'][2]);c.restore();
  for(const arm of pose.arms)sleeve(c,arm,armor);
  // Rear-facing cloth hides the front belt; this is a rigged prototype, not a full direction atlas.
- const body=heroAttachment(armor).body;part(c,armor+'Body',body.x,body.y,body.w,body.h);
- if(back)part(c,armor+'Skirt',-19,-88,38,38*PARTS[armor+'Skirt'][3]/PARTS[armor+'Skirt'][2]);
+ const {body,hem}=heroAttachment(armor);
+ // End the jacket below its belt. Do not append an ankle-length skirt to it.
+ c.save();c.beginPath();c.rect(body.x-1,body.y-1,body.w+2,hem-body.y+1);c.clip();part(c,armor+'Body',body.x,body.y,body.w,body.h);c.restore();
+ if(back){c.save();c.beginPath();c.rect(-19,-84,38,29);c.clip();part(c,armor+'Skirt',-19,-84,38,38*PARTS[armor+'Skirt'][3]/PARTS[armor+'Skirt'][2]);c.restore();}
  for(const arm of pose.arms){forearm(c,arm,armor);if(arm.side===1)heldWeapon(c,equip.weapon,arm.grip,action,t);glove(c,arm);}
  paintedHead(c,equip,armor,back);
  c.restore();

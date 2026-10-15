@@ -5,8 +5,10 @@ import {heroAttachment} from '../src/draw.mjs';
 test('all garments retain their source aspect ratios instead of flattening the torso',()=>{
  const source={crimson:[278,262],jade:[240,269],ivory:[284,262]};
  for(const [armor,[w,h]]of Object.entries(source)){
-  const {body}=heroAttachment(armor);
+  const {body,hem,socket}=heroAttachment(armor);
   assert(Math.abs(body.w/body.h-w/h)<1e-10);
+  assert(hem<-51&&hem>-55,'jacket must finish above the hips so the trousers remain visible');
+  assert(hem-socket.y<38,'collar-to-hem length exceeds the compact jacket proportion');
  }
 });
 
